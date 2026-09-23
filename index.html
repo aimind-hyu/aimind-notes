@@ -477,7 +477,10 @@ const CONFIG = {
   // Need discussion may be free text or 예/아니오; anything other than a "no"-style answer counts
   function isFlagged(entry) {
     const v = entry.needDiscussion.trim();
-    return v !== "" && !/^(아니오|아니요|아니|없음|없습니다|no|none|x|-)$/i.test(v);
+    const noDiscussion =
+      /^(아니|없|no\b|none|n\/a|x$|-+$|\.+$)/i.test(v) ||         // 아니오, 없음, 없습니다, no, -, ...
+      /필요\s*(하지\s*않|없|x)|논의\s*(할\s*)?(사항|내용|것)?\s*(은|이)?\s*없/.test(v);  // 특별한 논의가 필요하지 않습니다, 논의 사항 없음
+    return v !== "" && !noDiscussion;
   }
 
   function renderCard(entry) {
