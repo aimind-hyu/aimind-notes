@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>미팅 노트 대시보드 — AiMIND Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<script>
+// ============================================================
+// 1) EDIT THESE THREE VALUES
+// ============================================================
+const CONFIG = {
+  CLIENT_ID: "50562912255-o4mr2m7hgr8v5gd7fejo8r7ltjt94oqb.apps.googleusercontent.com", // from Google Cloud Console
+  SPREADSHEET_ID: "1vsJOK2bJ4lNfPHWbVSq8KcLz--7Lmvl2Rg5kG1k1_W8", // from the sheet's URL
+  SHEET_RANGE: "A:Z",                                            // usually fine as-is
+  ALLOWED_DOMAIN: "hanyang.ac.kr"                                // school domain
+};
+</script>
+
+<style>
+  :root {
+    --paper: #FFFFFF;
+    --paper-line: #E0E0E0;
+    --ink: #202124;
+    --ink-soft: #5F6368;
+    --blue: #1A73E8;
+    --blue-dark: #174EA6;
+    --bg-tint: #F8F9FA;
+    --red: #D93025;
+    --red-bg: #FCE8E6;
+    font-family: "Roboto", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-tint);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--blue); }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    background: #fff;
+    border-bottom: 1px solid var(--paper-line);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .topbar h1 {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0;
+  }
+  .user-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .user-box img { width: 28px; height: 28px; border-radius: 50%; }
+  .btn {
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--paper-line);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .btn:hover { border-color: var(--blue); color: var(--blue); }
+  .btn-primary {
+    background: var(--blue);
+    color: #fff;
+    border: none;
+  }
+  .btn-primary:hover { background: var(--blue-dark); color: #fff; }
+
+  /* ---------- Gate screen ---------- */
+  .gate {
+    max-width: 420px;
+    margin: 18vh auto 0;
+    text-align: center;
+    padding: 0 24px;
+  }
+  .gate h2 { font-size: 22px; font-weight: 500; margin-bottom: 10px; }
+  .gate p { color: var(--ink-soft); font-size: 14px; line-height: 1.6; margin-bottom: 28px; }
+  #g_id_button_wrap { display: inline-block; }
+  .gate-error {
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--red);
+    background: var(--red-bg);
+    border-radius: 6px;
+    padding: 10px 14px;
+    display: none;
+  }
+
+  /* ---------- Controls ---------- */
+  .controls {
+    max-width: 1100px;
+    margin: 24px auto 0;
+    padding: 0 24px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  select, input[type="text"] {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--paper-line);
+    background: #fff;
+  }
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .status-line {
+    max-width: 1100px;
+    margin: 8px auto 0;
+    padding: 0 24px;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+
+  /* ---------- Cards ---------- */
+  .board {
+    max-width: 1100px;
+    margin: 24px auto 60px;
+    padding: 0 24px;
+  }
+  .week-heading {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    margin: 32px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--paper-line);
+  }
+  .week-heading:first-child { margin-top: 0; }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .note-card {
+    background: #fff;
+    border: 1px solid var(--paper-line);
+    border-left: 4px solid var(--paper-line);
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .note-card.flagged { border-left-color: var(--red); }
+  .note-card .who {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+  }
+  .note-card .who .name { font-size: 15px; font-weight: 500; }
+  .note-card .who .date { font-size: 12px; color: var(--ink-soft); }
+  .field { margin-bottom: 10px; }
+  .field:last-child { margin-bottom: 0; }
+  .field .label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--blue);
+    margin-bottom: 3px;
+  }
+  .field .value {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--ink);
+    white-space: pre-wrap;
+  }
+  .field .value.empty { color: #C0C3C6; font-style: italic; }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--red);
+    background: var(--red-bg);
+    padding: 2px 8px;
+    border-radius: 20px;
+    margin-left: 8px;
+  }
+  .empty-state {
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+    padding: 60px 20px;
+  }
+</style>
+
+<div id="app"></div>
+
+<script>
+(function () {
+  const app = document.getElementById("app");
+  let accessToken = null;
+  let profile = null;
+  let allRows = [];
+  let colMap = {};
+
+  // ---------- Render: sign-in gate ----------
+  function renderGate(errorMsg) {
+    app.innerHTML = `
+      <div class="gate">
+        <h2>AiMIND Lab 미팅 노트</h2>
+        <p>학교 계정(@${CONFIG.ALLOWED_DOMAIN})으로 로그인하면<br>이번 주 랩 멤버들의 미팅 노트를 볼 수 있어요.</p>
+        <div id="g_id_button_wrap"></div>
+        <div class="gate-error" id="gateError">${errorMsg || ""}</div>
+      </div>
+    `;
+    if (errorMsg) document.getElementById("gateError").style.display = "block";
+
+    document.getElementById("g_id_button_wrap").innerHTML =
+      `<button class="btn btn-primary" style="padding:10px 22px;font-size:14px;" onclick="window.__requestToken()">학교 계정으로 로그인</button>`;
+
+    window.__tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CONFIG.CLIENT_ID,
+      scope: "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+      callback: onToken
+    });
+    window.__requestToken = () => window.__tokenClient.requestAccessToken();
+  }
+
+  async function onToken(resp) {
+    if (resp.error) {
+      renderGate("로그인에 실패했어요. 다시 시도해주세요.");
+      return;
+    }
+    accessToken = resp.access_token;
+
+    const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+      headers: { Authorization: "Bearer " + accessToken }
+    });
+    profile = await userInfoRes.json();
+
+    if (!profile.email || !profile.email.endsWith("@" + CONFIG.ALLOWED_DOMAIN)) {
+      renderGate(`이 대시보드는 @${CONFIG.ALLOWED_DOMAIN} 계정만 볼 수 있어요. (로그인한 계정: ${profile.email || "확인 불가"})`);
+      return;
+    }
+
+    renderApp();
+    loadData();
+  }
+
+  // ---------- Render: main app shell ----------
+  function renderApp() {
+    app.innerHTML = `
+      <div class="topbar">
+        <h1>📋 미팅 노트 대시보드</h1>
+        <div class="user-box">
+          <img src="${profile.picture || ""}" alt="">
+          <span>${profile.name || profile.email}</span>
+          <button class="btn" onclick="location.reload()">로그아웃</button>
+        </div>
+      </div>
+      <div class="controls">
+        <select id="weekFilter"></select>
+        <input type="text" id="searchBox" placeholder="이름 또는 이메일 검색">
+        <label class="checkbox-label">
+          <input type="checkbox" id="onlyFlagged">
+          논의 필요만 보기
+        </label>
+        <button class="btn" id="refreshBtn">↻ 새로고침</button>
+      </div>
+      <div class="status-line" id="statusLine">불러오는 중…</div>
+      <div class="board" id="board"></div>
+    `;
+    document.getElementById("weekFilter").addEventListener("change", renderBoard);
+    document.getElementById("searchBox").addEventListener("input", renderBoard);
+    document.getElementById("onlyFlagged").addEventListener("change", renderBoard);
+    document.getElementById("refreshBtn").addEventListener("click", loadData);
+  }
+
+  // ---------- Data loading ----------
+  async function loadData() {
+    document.getElementById("statusLine").textContent = "불러오는 중…";
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodeURIComponent(CONFIG.SHEET_RANGE)}`;
+    try {
+      const res = await fetch(url, { headers: { Authorization: "Bearer " + accessToken } });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody?.error?.message || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const rows = data.values || [];
+      if (rows.length < 2) {
+        document.getElementById("statusLine").textContent = "아직 제출된 응답이 없어요.";
+        allRows = [];
+        renderBoard();
+        return;
+      }
+      const headers = rows[0];
+      colMap = buildColMap(headers);
+      allRows = rows.slice(1).map((r) => rowToEntry(r, headers.length));
+      populateWeekFilter();
+      document.getElementById("statusLine").textContent =
+        `총 ${allRows.length}건 · 마지막 새로고침 ${new Date().toLocaleTimeString("ko-KR")}`;
+      renderBoard();
+    } catch (e) {
+      document.getElementById("statusLine").textContent =
+        "불러오기 실패: " + e.message + " (시트 공유 설정 또는 SPREADSHEET_ID를 확인해주세요)";
+    }
+  }
+
+  function buildColMap(headers) {
+    const idx = (keywords) =>
+      headers.findIndex((h) => keywords.some((k) => (h || "").toLowerCase().includes(k.toLowerCase())));
+    const map = {
+      timestamp: idx(["타임스탬프", "timestamp"]),
+      email: idx(["이메일"]),
+      week: idx(["날짜"]),
+      thisWeek: idx(["this week"]),
+      problem: idx(["problem"]),
+      nextWeek: idx(["next week"]),
+      needDiscussion: idx(["need discussion"]),
+      detail: idx(["부분", "어떤", "구체적", "detail"])
+    };
+    // Key result has two possible columns: text + optional file upload
+    let keyResultText = -1, keyResultFile = -1;
+    headers.forEach((h, i) => {
+      const low = (h || "").toLowerCase();
+      if (low.includes("key result")) {
+        if (low.includes("그림") || low.includes("파일") || low.includes("file")) keyResultFile = i;
+        else keyResultText = i;
+      }
+    });
+    map.keyResultText = keyResultText;
+    map.keyResultFile = keyResultFile;
+    return map;
+  }
+
+  function get(row, key) {
+    const i = colMap[key];
+    return i >= 0 && i < row.length ? (row[i] || "").trim() : "";
+  }
+
+  function rowToEntry(row, len) {
+    while (row.length < len) row.push("");
+    return {
+      email: get(row, "email"),
+      timestamp: get(row, "timestamp"),
+      week: get(row, "week"),
+      thisWeek: get(row, "thisWeek"),
+      keyResultText: get(row, "keyResultText"),
+      keyResultFile: get(row, "keyResultFile"),
+      problem: get(row, "problem"),
+      nextWeek: get(row, "nextWeek"),
+      needDiscussion: get(row, "needDiscussion"),
+      detail: get(row, "detail")
+    };
+  }
+
+  function populateWeekFilter() {
+    const weeks = Array.from(new Set(allRows.map((r) => r.week).filter(Boolean)));
+    weeks.sort((a, b) => new Date(b) - new Date(a));
+    const sel = document.getElementById("weekFilter");
+    sel.innerHTML =
+      `<option value="__all__">전체 주차</option>` +
+      weeks.map((w) => `<option value="${w}">${w}</option>`).join("");
+    if (weeks.length) sel.value = weeks[0];
+  }
+
+  function nameFromEmail(email) {
+    if (!email) return "이름 없음";
+    return email.split("@")[0];
+  }
+
+  function fieldBlock(label, value) {
+    const safe = (value || "").replace(/</g, "&lt;");
+    return `
+      <div class="field">
+        <div class="label">${label}</div>
+        <div class="value ${safe ? "" : "empty"}">${safe || "작성 안 함"}</div>
+      </div>`;
+  }
+
+  function renderCard(entry) {
+    const isFlagged = entry.needDiscussion.trim() === "예";
+    const keyResultBlock = entry.keyResultFile
+      ? `<div class="field">
+           <div class="label">Key result — 그림</div>
+           <div class="value"><a href="${entry.keyResultFile}" target="_blank" rel="noopener">첨부 파일 열기</a></div>
+         </div>`
+      : "";
+    return `
+      <div class="note-card ${isFlagged ? "flagged" : ""}">
+        <div class="who">
+          <span class="name">${nameFromEmail(entry.email)}${isFlagged ? '<span class="badge">논의 필요</span>' : ""}</span>
+          <span class="date">${entry.timestamp}</span>
+        </div>
+        ${fieldBlock("This week", entry.thisWeek)}
+        ${fieldBlock("Key result", entry.keyResultText)}
+        ${keyResultBlock}
+        ${fieldBlock("Problem", entry.problem)}
+        ${fieldBlock("Next week", entry.nextWeek)}
+        ${isFlagged ? fieldBlock("논의 내용", entry.detail) : ""}
+      </div>`;
+  }
+
+  function renderBoard() {
+    const board = document.getElementById("board");
+    const weekFilter = document.getElementById("weekFilter")?.value || "__all__";
+    const search = (document.getElementById("searchBox")?.value || "").toLowerCase();
+    const onlyFlagged = document.getElementById("onlyFlagged")?.checked;
+
+    let rows = allRows.filter((r) => {
+      if (weekFilter !== "__all__" && r.week !== weekFilter) return false;
+      if (search && !r.email.toLowerCase().includes(search)) return false;
+      if (onlyFlagged && r.needDiscussion.trim() !== "예") return false;
+      return true;
+    });
+
+    if (!rows.length) {
+      board.innerHTML = `<div class="empty-state">조건에 맞는 노트가 없어요.</div>`;
+      return;
+    }
+
+    if (weekFilter !== "__all__") {
+      board.innerHTML = `<div class="card-grid">${rows.map(renderCard).join("")}</div>`;
+      return;
+    }
+
+    // group by week, most recent first
+    const byWeek = {};
+    rows.forEach((r) => {
+      const w = r.week || "(주차 미기재)";
+      (byWeek[w] = byWeek[w] || []).push(r);
+    });
+    const weeksSorted = Object.keys(byWeek).sort((a, b) => new Date(b) - new Date(a));
+    board.innerHTML = weeksSorted
+      .map(
+        (w) => `
+        <div class="week-heading">${w}</div>
+        <div class="card-grid">${byWeek[w].map(renderCard).join("")}</div>
+      `
+      )
+      .join("");
+  }
+
+  window.addEventListener("load", () => renderGate());
+})();
+</script>
+
+</body>
+</html>
