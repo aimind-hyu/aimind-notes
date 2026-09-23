@@ -242,12 +242,16 @@ const CONFIG = {
       scope: "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
       callback: onToken
     });
-    window.__requestToken = () => window.__tokenClient.requestAccessToken();
+    window.__requestToken = () => window.__tokenClient.requestAccessToken({ prompt: "consent" });
   }
 
   async function onToken(resp) {
     if (resp.error) {
       renderGate("로그인에 실패했어요. 다시 시도해주세요.");
+      return;
+    }
+    if (!google.accounts.oauth2.hasGrantedAllScopes(resp, "https://www.googleapis.com/auth/spreadsheets.readonly")) {
+      renderGate("스프레드시트 보기 권한이 체크되지 않았어요. 다시 로그인할 때 권한 체크박스를 모두 체크해주세요.");
       return;
     }
     accessToken = resp.access_token;
