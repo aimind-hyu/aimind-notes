@@ -242,8 +242,37 @@ const CONFIG = {
       scope: "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
       callback: onToken
     });
-    window.__requestToken = () => window.__tokenClient.requestAccessToken({ prompt: "consent" });
+    // Returning users skip the consent screen; show it again only if the Sheets box was left unchecked
+    window.__requestToken = () => window.__tokenClient.requestAccessToken({
+      prompt: needConsent ? "consent" : "",
+      login_hint: (loadSession() || {}).email || localStorage.getItem(LAST_EMAIL_KEY) || ""
+    });
   }
+
+  // ---------- Session persistence (token lives ~1 hour) ----------
+  const SESSION_KEY = "aimind_notes_session";
+  const LAST_EMAIL_KEY = "aimind_notes_last_email";
+  let needConsent = false;
+
+  function loadSession() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SESSION_KEY));
+      return s && s.expiresAt > Date.now() + 60 * 1000 ? s : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+  }
+
+  window.__logout = () => {
+    if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
+    clearSession();
+    localStorage.removeItem(LAST_EMAIL_KEY);
+    location.reload();
+  };
 
   async function onToken(resp) {
     if (resp.error) {
@@ -251,23 +280,44 @@ const CONFIG = {
       return;
     }
     if (!google.accounts.oauth2.hasGrantedAllScopes(resp, "https://www.googleapis.com/auth/spreadsheets.readonly")) {
+      needConsent = true;
       renderGate("스프레드시트 보기 권한이 체크되지 않았어요. 다시 로그인할 때 권한 체크박스를 모두 체크해주세요.");
       return;
     }
-    accessToken = resp.access_token;
+    needConsent = false;
+    const ok = await startSession(resp.access_token);
+    if (ok) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        token: resp.access_token,
+        email: profile.email,
+        expiresAt: Date.now() + Number(resp.expires_in || 3600) * 1000
+      }));
+      localStorage.setItem(LAST_EMAIL_KEY, profile.email);
+    }
+  }
+
+  async function startSession(token) {
+    accessToken = token;
 
     const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
       headers: { Authorization: "Bearer " + accessToken }
     });
+    if (!userInfoRes.ok) {
+      clearSession();
+      renderGate();
+      return false;
+    }
     profile = await userInfoRes.json();
 
     if (!profile.email || !profile.email.endsWith("@" + CONFIG.ALLOWED_DOMAIN)) {
+      clearSession();
       renderGate(`이 대시보드는 @${CONFIG.ALLOWED_DOMAIN} 계정만 볼 수 있어요. (로그인한 계정: ${profile.email || "확인 불가"})`);
-      return;
+      return false;
     }
 
     renderApp();
     loadData();
+    return true;
   }
 
   // ---------- Render: main app shell ----------
@@ -278,7 +328,7 @@ const CONFIG = {
         <div class="user-box">
           <img src="${profile.picture || ""}" alt="">
           <span>${profile.name || profile.email}</span>
-          <button class="btn" onclick="location.reload()">로그아웃</button>
+          <button class="btn" onclick="window.__logout()">로그아웃</button>
         </div>
       </div>
       <div class="controls">
@@ -305,6 +355,11 @@ const CONFIG = {
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodeURIComponent(CONFIG.SHEET_RANGE)}`;
     try {
       const res = await fetch(url, { headers: { Authorization: "Bearer " + accessToken } });
+      if (res.status === 401) {
+        clearSession();
+        renderGate("로그인이 만료됐어요. 다시 로그인해주세요.");
+        return;
+      }
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody?.error?.message || `HTTP ${res.status}`);
@@ -402,12 +457,24 @@ const CONFIG = {
       </div>`;
   }
 
+  // Form uploads are Drive links; authuser makes Drive open them with the dashboard account
+  // instead of the browser's default Google account (which may have no access)
+  function fileLinks(value) {
+    return value.split(",").map((s) => s.trim()).filter(Boolean).map((link, i, all) => {
+      const id = (link.match(/[?&]id=([\w-]+)/) || link.match(/\/d\/([\w-]+)/) || [])[1];
+      const href = id
+        ? `https://drive.google.com/file/d/${id}/view?authuser=${encodeURIComponent(profile.email)}`
+        : link;
+      return `<a href="${href}" target="_blank" rel="noopener">첨부 파일 열기${all.length > 1 ? " " + (i + 1) : ""}</a>`;
+    }).join(" · ");
+  }
+
   function renderCard(entry) {
     const isFlagged = entry.needDiscussion.trim() === "예";
     const keyResultBlock = entry.keyResultFile
       ? `<div class="field">
            <div class="label">Key result — 그림</div>
-           <div class="value"><a href="${entry.keyResultFile}" target="_blank" rel="noopener">첨부 파일 열기</a></div>
+           <div class="value">${fileLinks(entry.keyResultFile)}</div>
          </div>`
       : "";
     return `
@@ -465,7 +532,11 @@ const CONFIG = {
       .join("");
   }
 
-  window.addEventListener("load", () => renderGate());
+  window.addEventListener("load", () => {
+    renderGate();  // also sets up the token client, in case the saved token is rejected
+    const saved = loadSession();
+    if (saved) startSession(saved.token);
+  });
 })();
 </script>
 
