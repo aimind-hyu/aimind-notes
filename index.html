@@ -396,8 +396,13 @@ const CONFIG = {
       problem: idx(["problem"]),
       nextWeek: idx(["next week"]),
       needDiscussion: idx(["need discussion"]),
-      detail: idx(["부분", "어떤", "구체적", "detail"])
+      detail: -1
     };
+    // Optional follow-up column for a 예/아니오-style Need discussion question
+    // (skip columns already used, e.g. "Problem — 막힌 부분")
+    const used = Object.values(map);
+    map.detail = headers.findIndex((h, i) =>
+      !used.includes(i) && ["어떤", "구체적", "detail", "논의 내용"].some((k) => (h || "").toLowerCase().includes(k)));
     // Key result has two possible columns: text + optional file upload
     let keyResultText = -1, keyResultFile = -1;
     headers.forEach((h, i) => {
@@ -469,8 +474,15 @@ const CONFIG = {
     }).join(" · ");
   }
 
+  // Need discussion may be free text or 예/아니오; anything other than a "no"-style answer counts
+  function isFlagged(entry) {
+    const v = entry.needDiscussion.trim();
+    return v !== "" && !/^(아니오|아니요|아니|없음|없습니다|no|none|x|-)$/i.test(v);
+  }
+
   function renderCard(entry) {
-    const isFlagged = entry.needDiscussion.trim() === "예";
+    const flagged = isFlagged(entry);
+    const discussionText = entry.needDiscussion.trim() === "예" ? entry.detail : entry.needDiscussion;
     const keyResultBlock = entry.keyResultFile
       ? `<div class="field">
            <div class="label">Key result — 그림</div>
@@ -478,9 +490,9 @@ const CONFIG = {
          </div>`
       : "";
     return `
-      <div class="note-card ${isFlagged ? "flagged" : ""}">
+      <div class="note-card ${flagged ? "flagged" : ""}">
         <div class="who">
-          <span class="name">${nameFromEmail(entry.email)}${isFlagged ? '<span class="badge">논의 필요</span>' : ""}</span>
+          <span class="name">${nameFromEmail(entry.email)}${flagged ? '<span class="badge">논의 필요</span>' : ""}</span>
           <span class="date">${entry.timestamp}</span>
         </div>
         ${fieldBlock("This week", entry.thisWeek)}
@@ -488,7 +500,7 @@ const CONFIG = {
         ${keyResultBlock}
         ${fieldBlock("Problem", entry.problem)}
         ${fieldBlock("Next week", entry.nextWeek)}
-        ${isFlagged ? fieldBlock("논의 내용", entry.detail) : ""}
+        ${flagged ? fieldBlock("Need discussion", discussionText) : ""}
       </div>`;
   }
 
@@ -501,7 +513,7 @@ const CONFIG = {
     let rows = allRows.filter((r) => {
       if (weekFilter !== "__all__" && r.week !== weekFilter) return false;
       if (search && !r.email.toLowerCase().includes(search)) return false;
-      if (onlyFlagged && r.needDiscussion.trim() !== "예") return false;
+      if (onlyFlagged && !isFlagged(r)) return false;
       return true;
     });
 
